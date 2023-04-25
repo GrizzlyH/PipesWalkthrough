@@ -1,4 +1,5 @@
 import pygame
+from random import choice, randint
 
 pygame.init()
 pygame.display.init()
@@ -55,6 +56,8 @@ class Game:
         self.screen = pygame.display.set_mode((self.sw, self.sh))
         pygame.display.set_caption("Pipes")
 
+        self.gameplay = PipeGamePlay()
+
         self.run = True
 
     def runGame(self):
@@ -79,12 +82,141 @@ class Game:
         #testLoadedImages(self.screen, 704, 320, 64, 64, list(PIPES.keys()), PIPES)
         #testLoadedImages(self.screen, 64, 64, 64, 64, list(FLOW.keys()), FLOW)
         #testLoadedImages(self.screen, 64, 64, 64, 64, list(BOARD.keys()), BOARD)
+        self.gameplay.draw(self.screen)
         pygame.display.update()
+
+class PipeGamePlay:
+    def __init__(self):
+        self.rows = ROWS
+        self.cols = COLUMNS
+
+        self.grid = self._create_game_grid()
+        self.pieces = {}
+
+        self._insert_start_pieces(START, self._verify_start, StartPiece)
+        self._insert_start_pieces(END, self._verify_end, EndPiece)
+
+        self.nextPieces = [choice(list(PIPES.keys())) for _ in range(6)]
+        self.currentPiece = self.nextPieces.pop(0)
+
+    def _create_game_grid(self):
+        """Creates an empty game grid per the number of rows and columns"""
+        grid = []
+        for row in range(self.rows):
+            line = []
+            for col in range(self.cols):
+                line.append(" ")
+            grid.append(line)
+        return grid
+
+    def _insert_start_pieces(self, startpiecedict, verify_pos, newObject):
+        """Randomly select a Starting piece, then insert it into the grid in a valid position"""
+        piece = choice(list(startpiecedict.keys()))
+        validStartPos = False
+        row, col = 0, 0
+        while not validStartPos:
+            row, col = randint(0, self.rows - 1), randint(0, self.cols - 1)
+            validStartPos = verify_pos(piece, self.rows, self.cols, row, col)
+
+        self.pieces[(row, col)] = newObject(self, piece, row, col, XOFFSET, YOFFSET)
+        self.grid[row][col] = self.pieces[(row, col)].piece
+        return
+
+    def _verify_start(self, startpiece, rows, cols, row, col):
+        """Verify the starting location randomly selected"""
+        if startpiece == "SRIGHT" and col != cols - 1: return True
+        elif startpiece == "SLEFT" and col != 0: return True
+        elif startpiece == "SUP" and row != 0: return True
+        elif startpiece == "SDOWN" and row != rows - 1: return True
+        return False
+
+    def _verify_end(self, endpiece, rows, columns, row, col):
+        if self.grid[row][col] != " ": return False
+        if row == 0 and endpiece == "EDOWN": return False
+        elif row == rows - 1 and endpiece == "EUP": return False
+        elif col == 0 and endpiece == "ERIGHT": return False
+        elif col == columns - 1 and endpiece == "ELEFT": return False
+        else:
+            if row < rows - 1:
+                if self.grid[row + 1][col] != " ": return False
+                if col < columns - 1:
+                    if self.grid[row][col + 1] != " ": return False
+                if col > 0:
+                    if self.grid[row][col - 1] != " ": return False
+            if row > 0:
+                if self.grid[row - 1][col] != " ": return False
+        return True
+
+    def draw_game_board(self, window):
+        for row in range(self.rows):
+            for col in range(self.cols):
+                if row % 2 == 0:
+                    type = "Dark" if col % 2 == 0 else "Light"
+                else:
+                    type = "Light" if col % 2 == 0 else "Dark"
+                window.blit(BOARD[type][0], (XOFFSET + (col * 64), YOFFSET + (row * 64)))
+
+    def draw_current_next_pieces(self, window):
+        window.blit(pygame.transform.scale(PIPES[self.currentPiece][0], (128, 128)), (XOFFSET - 128, 64))
+        pygame.draw.rect(window, "White", (XOFFSET - 128, 64, 128, 128), 1)
+        for num, item in enumerate(self.nextPieces):
+            window.blit(PIPES[item][0], (XOFFSET - 96, YOFFSET + 194 + (64 * num)))
+        return
+
+    def draw(self, window):
+        self.draw_game_board(window)
+        self.draw_current_next_pieces(window)
+        for piece in self.pieces.values():
+            piece.draw(window)
+
+class StartPiece:
+    def __init__(self, game, piece, row, column, xoffset, yoffset):
+        self.game = game
+        self.piece = piece
+        self.row = row
+        self.col = column
+        self.xPos = xoffset + (self.col * CELLSIZE)
+        self.yPos = yoffset + (self.row * CELLSIZE)
+        self.imgIndex = 0
+
+        self.image = START[self.piece][self.imgIndex]
+        self.rect = self.image.get_rect(topleft=(self.xPos, self.yPos))
+
+    def update(self):
+        pass
+
+    def draw(self, window):
+        window.blit(self.image, self.rect)
+
+class EndPiece:
+    def __init__(self, game, piece, row, column, xoffset, yoffset):
+        self.game = game
+        self.piece = piece
+        self.row = row
+        self.col = column
+        self.xPos = xoffset + (self.col * CELLSIZE)
+        self.yPos = yoffset + (self.row * CELLSIZE)
+        self.end = "END"
+
+        self.image = END[self.piece][0]
+        self.rect = self.image.get_rect(topleft=(self.xPos, self.yPos))
+
+    def update(self):
+        pass
+
+    def draw(self, window):
+        window.blit(self.image, self.rect)
+
 
 #  Constants
 SCREENWIDTH = 960
 SCREENHEIGHT = 896
 IMAGESIZE = (64, 64)
+ROWS = 12
+COLUMNS = 12
+CELLSIZE = 64
+XOFFSET = 128
+YOFFSET = 64
 
 #  Assets
 START = {
