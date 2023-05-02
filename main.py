@@ -71,8 +71,17 @@ class Game:
             if event.type == pygame.QUIT:
                 self.run = False
 
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    xPos, yPos = pygame.mouse.get_pos()
+                    self.gameplay.insert_new_piece(xPos, yPos, XOFFSET, YOFFSET)
+
+                if event.button == 3:
+                    xPos, yPos = pygame.mouse.get_pos()
+                    self.gameplay.removePiece(xPos, yPos, XOFFSET, YOFFSET)
+
     def update(self):
-        pass
+        self.gameplay.update()
 
     def draw(self):
         self.screen.fill("Black")
@@ -92,6 +101,8 @@ class PipeGamePlay:
 
         self.grid = self._create_game_grid()
         self.pieces = {}
+
+        self.startTime = 5000
 
         self._insert_start_pieces(START, self._verify_start, StartPiece)
         self._insert_start_pieces(END, self._verify_end, EndPiece)
@@ -118,7 +129,7 @@ class PipeGamePlay:
             row, col = randint(0, self.rows - 1), randint(0, self.cols - 1)
             validStartPos = verify_pos(piece, self.rows, self.cols, row, col)
 
-        self.pieces[(row, col)] = newObject(self, piece, row, col, XOFFSET, YOFFSET)
+        self.pieces[(row, col)] = newObject(self, piece, row, col, XOFFSET, YOFFSET, self.startTime)
         self.grid[row][col] = self.pieces[(row, col)].piece
         return
 
@@ -163,6 +174,41 @@ class PipeGamePlay:
             window.blit(PIPES[item][0], (XOFFSET - 96, YOFFSET + 194 + (64 * num)))
         return
 
+    def _get_row_and_col(self, xpos, ypos, xoffset, yoffset):
+        row = (ypos - yoffset) // CELLSIZE
+        col = (xpos - xoffset) // CELLSIZE
+        return row, col
+
+    def insert_new_piece(self, xpos, ypos, xoffset, yoffset):
+        row, col = self._get_row_and_col(xpos, ypos, xoffset, yoffset)
+        if row < 0 or col < 0 or row >= self.rows or col >= self.cols:
+            return
+
+        #  Can change this code to allow for replacing current tiles: Remember to make a check for Start/end piece
+        if self.grid[row][col] != " ":
+            return
+
+        self.grid[row][col] = self.currentPiece
+        self.pieces[(row, col)] = Piece(self, self.currentPiece, row, col, xoffset, yoffset)
+
+        self.currentPiece = self.nextPieces.pop(0)
+        self.nextPieces.append(choice(list(PIPES.keys())))
+
+    def removePiece(self, xpos, ypos, xoffset, yoffset):
+        row, col = self._get_row_and_col(xpos, ypos, xoffset, yoffset)
+        if row < 0 or col < 0 or row >= self.rows or col >= self.cols:
+            return
+
+        if self.grid[row][col] in [" ", 'SRIGHT', 'SLEFT', 'SUP', 'SDOWN', 'ERIGHT', 'ELEFT', 'EUP', 'EDOWN']:
+            return
+
+        self.grid[row][col] = " "
+        del self.pieces[(row, col)]
+
+    def update(self):
+        for value in self.pieces.values():
+            value.update()
+
     def draw(self, window):
         self.draw_game_board(window)
         self.draw_current_next_pieces(window)
@@ -170,7 +216,7 @@ class PipeGamePlay:
             piece.draw(window)
 
 class StartPiece:
-    def __init__(self, game, piece, row, column, xoffset, yoffset):
+    def __init__(self, game, piece, row, column, xoffset, yoffset, starttime):
         self.game = game
         self.piece = piece
         self.row = row
@@ -182,14 +228,40 @@ class StartPiece:
         self.image = START[self.piece][self.imgIndex]
         self.rect = self.image.get_rect(topleft=(self.xPos, self.yPos))
 
+        self.timer = Timer(starttime)
+        self.timer.activate()
+
+        self.active = True
+        self.direction = self.piece[1:]
+
     def update(self):
-        pass
+        if not self.active:
+            return
+
+        self.timer.update()
+
+        if self.timer.active == False and self.imgIndex < (len(START[self.piece])-1):
+            self.updateImageAnimation()
+            self.resetTimer(FLOWTIME)
+
+        if self.imgIndex == len(START[self.piece]) -1 and self.active == True:
+            self.active = False
+
+    def updateImageAnimation(self):
+        """Changes the image to reflect the updated animation image"""
+        self.imgIndex += 1
+        self.image = START[self.piece][self.imgIndex]
+
+    def resetTimer(self, duration):
+        """Resets the timer with a new time"""
+        self.timer.duration = duration
+        self.timer.activate()
 
     def draw(self, window):
         window.blit(self.image, self.rect)
 
 class EndPiece:
-    def __init__(self, game, piece, row, column, xoffset, yoffset):
+    def __init__(self, game, piece, row, column, xoffset, yoffset, *args):
         self.game = game
         self.piece = piece
         self.row = row
@@ -207,6 +279,43 @@ class EndPiece:
     def draw(self, window):
         window.blit(self.image, self.rect)
 
+class Piece:
+    def __init__(self, game, piece, row, col, xoffset, yoffset):
+        self.game = game
+        self.piece = piece
+        self.row = row
+        self.col = col
+        self.xPos = xoffset + (self.col * CELLSIZE)
+        self.yPos = yoffset + (self.row * CELLSIZE)
+
+        self.image = PIPES[self.piece][0].convert_alpha()
+        self.rect = self.image.get_rect(topleft=(self.xPos, self.yPos))
+
+    def update(self):
+        pass
+
+    def draw(self, window):
+        window.blit(self.image, self.rect)
+
+class Timer:
+    def __init__(self, duration):
+        self.duration = duration
+        self.start_time = 0
+        self.active = False
+        self.current_time = 0
+
+    def activate(self):
+        self.active = True
+        self.start_time = pygame.time.get_ticks()
+
+    def deactivate(self):
+        self.active = False
+        self.start_time = 0
+
+    def update(self):
+        self.current_time = pygame.time.get_ticks()
+        if self.current_time - self.start_time >= self.duration:
+            self.deactivate()
 
 #  Constants
 SCREENWIDTH = 960
@@ -215,6 +324,7 @@ IMAGESIZE = (64, 64)
 ROWS = 12
 COLUMNS = 12
 CELLSIZE = 64
+FLOWTIME = 50
 XOFFSET = 128
 YOFFSET = 64
 
