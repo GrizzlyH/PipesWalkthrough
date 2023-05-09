@@ -18,7 +18,7 @@ def spriteImage(spritesheet, size, xcoord, ycoord, width, height):
     surface.set_colorkey("Black")
     return surface
 
-def loadImages(path, numimghor=1, numimgver=1, scaleimage=False, scalesize=(64, 64), rotateimage=False, rotation=0):
+def loadImages(path, numimghor=1, numimgver=1, scaleimage=False, scalesize=(64, 64), rotateimage=False, rotation=0, simg=False):
     """Function to collect all sprites from a sheet into a single list"""
     spriteSheet = loadSpriteSheet(path)
     spriteSheetWidth = spriteSheet.get_width()
@@ -29,10 +29,13 @@ def loadImages(path, numimghor=1, numimgver=1, scaleimage=False, scalesize=(64, 
     imageList = []
     for row in range(numimgver):
         for col in range(numimghor):
-            image = spriteImage(spriteSheet,
-                                (spriteWidth, spriteHeight),
-                                col * spriteWidth, row * spriteHeight,
-                                spriteWidth, spriteHeight)
+            if simg==True:
+                image = spriteSheet
+            else:
+                image = spriteImage(spriteSheet,
+                                    (spriteWidth, spriteHeight),
+                                    col * spriteWidth, row * spriteHeight,
+                                    spriteWidth, spriteHeight)
             if scaleimage == True:
                 image = pygame.transform.scale(image, scalesize)
             if rotateimage == True:
@@ -244,8 +247,23 @@ class StartPiece:
             self.updateImageAnimation()
             self.resetTimer(FLOWTIME)
 
-        if self.imgIndex == len(START[self.piece]) -1 and self.active == True:
+        if self.imgIndex == len(START[self.piece]) - 1 and self.active == True:
             self.active = False
+            currentPiece = {
+                "SRIGHT": ["RIGHT", self.row, self.col+1, ["LR-RL", "LT-TL", "LB-BL"]],
+                "SLEFT": ["LEFT", self.row, self.col-1, ["LR-RL", "RT-TR", "RB-BR"]],
+                "SUP": ["UP", self.row-1, self.col, ["TB-BT", "LB-BL", "RB-BR"]],
+                "SDOWN": ["DOWN", self.row+1, self.col, ["TB-BT", "LT-TL", "RT-TR"]]
+            }
+            for piece in currentPiece.keys():
+                if self.piece == piece:
+                    self.direction = currentPiece[piece][0]
+                    row, col = currentPiece[piece][1], currentPiece[piece][2]
+                    if self.game.grid[row][col] in currentPiece[piece][3]:
+                        print(self.game.grid[row][col])
+                        self.game.pieces[(row, col)].calcFlowDirection(self.direction)
+                        self.game.pieces[(row, col)].active = True
+                        return
 
     def updateImageAnimation(self):
         """Changes the image to reflect the updated animation image"""
@@ -287,14 +305,68 @@ class Piece:
         self.col = col
         self.xPos = xoffset + (self.col * CELLSIZE)
         self.yPos = yoffset + (self.row * CELLSIZE)
+        self.imgIndex = 0
 
         self.image = PIPES[self.piece][0].convert_alpha()
         self.rect = self.image.get_rect(topleft=(self.xPos, self.yPos))
 
+        self.timer = None
+
+        self.active = False
+        self.direction = None
+        self.animImage = None
+        self.start1 = True
+        self.start2 = True
+
     def update(self):
-        pass
+        if not self.active:
+            return
+
+        self.timer.update()
+
+        if self.timer.active == False and self.imgIndex < (len(FLOW[self.direction]) - 1):
+            self.updateImageAnimation()
+            self.resetTimer(FLOWTIME)
+
+        if self.imgIndex == len(FLOW[self.direction]) - 1 and self.active == True:
+            #self._calculate_next_piece_direction()
+            pass
+
+    def resetTimer(self, duration):
+        """Resets the timer with a new time"""
+        self.timer.duration = duration
+        self.timer.activate()
+        if self.start1:
+            self.start1 = False
+            return
+        if not self.start1 and self.start2 == True:
+            self.start2 = False
+
+    def calcFlowDirection(self, lastDirection):
+        cellDirect = {
+            ("UP", "BT", "RT", "LT"): [["TB-BT", "LB-BL", "RB-BR"], {"TB-BT": "BT", "LB-BL": "BL", "RB-BR": "BR"}],
+            ("DOWN", "TB", "RB", "LB"): [["TB-BT", "LT-TL", "RT-TR"], {"TB-BT": "TB", "LT-TL": "TL", "RT-TR": "TR"}],
+            ("RIGHT", "LR", "TR", "BR"): [["LR-RL", "LB-BL", "LT-TL"], {"LR-RL": "LR", "LB-BL": "LB", "LT-TL": "LT"}],
+            ("LEFT", "RL", "TL", "BL"): [["LR-RL", "RB-BR", "RT-TR"], {"LR-RL": "RL", "RB-BR": "RB", "RT-TR": "RT"}]
+        }
+        for celldir in cellDirect.keys():
+            if lastDirection in celldir and self.piece in cellDirect[celldir][0]:
+                self.direction = cellDirect[celldir][1][self.piece]
+
+        self.timer = Timer(FLOWTIME)
+
+    def updateImageAnimation(self):
+        """Changes the image to reflect the updated water flow animation"""
+        if self.start1 != True and self.start2 == True:
+            self.animIndex = 0
+        if self.start2 != True and self.start2 != True:
+            self.imgIndex += 1
+        if not self.start1 or not self.start2:
+            self.animImage = FLOW[self.direction][self.imgIndex]
 
     def draw(self, window):
+        if self.animImage:
+            window.blit(self.animImage, self.rect)
         window.blit(self.image, self.rect)
 
 class Timer:
@@ -342,12 +414,12 @@ END = {
     "EDOWN":   loadImages("Assets/pipe_end.png", 1, 1, True, IMAGESIZE, True, -90)
 }
 PIPES = {
-    "LR-RL": loadImages("Assets/horizontal/pipe_horizontal.png", 1, 1, True, IMAGESIZE),
-    "TB-BT": loadImages("Assets/vertical/pipe_vertical.png", 1, 1, True, IMAGESIZE),
-    "LT-TL": loadImages("Assets/top_left/pipe_corner_top_left.png", 1, 1, True, IMAGESIZE),
-    "LB-BL": loadImages("Assets/bottom_left/pipe_corner_bottom_left.png", 1, 1, True, IMAGESIZE),
-    "RT-TR": loadImages("Assets/top_right/pipe_corner_top_right.png", 1, 1, True, IMAGESIZE),
-    "RB-BR": loadImages("Assets/bottom_right/pipe_corner_bottom_right.png", 1, 1, True, IMAGESIZE)
+    "LR-RL": loadImages("Assets/horizontal/pipe_horizontal.png", 1, 1, True, IMAGESIZE,simg=True),
+    "TB-BT": loadImages("Assets/vertical/pipe_vertical.png", 1, 1, True, IMAGESIZE,simg=True),
+    "LT-TL": loadImages("Assets/top_left/pipe_corner_top_left.png", 1, 1, True, IMAGESIZE,simg=True),
+    "LB-BL": loadImages("Assets/bottom_left/pipe_corner_bottom_left.png", 1, 1, True, IMAGESIZE,simg=True),
+    "RT-TR": loadImages("Assets/top_right/pipe_corner_top_right.png", 1, 1, True, IMAGESIZE,simg=True),
+    "RB-BR": loadImages("Assets/bottom_right/pipe_corner_bottom_right.png", 1, 1, True, IMAGESIZE,simg=True)
 }
 FLOW = {
     "LR": loadImages("Assets/horizontal/water_horizontal_left_strip11.png", 11, 1, True),
