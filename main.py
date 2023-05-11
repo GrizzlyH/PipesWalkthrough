@@ -75,13 +75,18 @@ class Game:
                 self.run = False
 
             if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:
-                    xPos, yPos = pygame.mouse.get_pos()
-                    self.gameplay.insert_new_piece(xPos, yPos, XOFFSET, YOFFSET)
+                if not self.gameplay.stageClear and not self.gameplay.gameOver and not self.gameplay.newGame:
+                    if event.button == 1:
+                        xPos, yPos = pygame.mouse.get_pos()
+                        self.gameplay.insert_new_piece(xPos, yPos, XOFFSET, YOFFSET)
 
-                if event.button == 3:
-                    xPos, yPos = pygame.mouse.get_pos()
-                    self.gameplay.removePiece(xPos, yPos, XOFFSET, YOFFSET)
+                    if event.button == 3:
+                        xPos, yPos = pygame.mouse.get_pos()
+                        self.gameplay.removePiece(xPos, yPos, XOFFSET, YOFFSET)
+
+                for button in self.gameplay.buttons:
+                    if button.rect.collidepoint(pygame.mouse.get_pos()):
+                        button.buttonAction()
 
     def update(self):
         self.gameplay.update()
@@ -102,10 +107,24 @@ class PipeGamePlay:
         self.rows = ROWS
         self.cols = COLUMNS
 
+        self.init_game()
+
+        self.newGame = True
+        self.gameOver = False
+        self.stageClear = False
+        self.stage = 0
+
+    def init_game(self):
         self.grid = self._create_game_grid()
         self.pieces = {}
-
-        self.startTime = 5000
+        self.buttons = [
+            Button(self, "Ready", 110, 50, 30, 60, 640),
+            Button(self, "New Game", 200, 50, 30, SCREENWIDTH//2, SCREENHEIGHT//2)
+        ]
+        self.startTime = 30000
+        self.TIME = Timer(self.startTime)
+        self.TIME.activate()
+        self.timeRemain = 0
 
         self._insert_start_pieces(START, self._verify_start, StartPiece)
         self._insert_start_pieces(END, self._verify_end, EndPiece)
@@ -161,6 +180,29 @@ class PipeGamePlay:
                 if self.grid[row - 1][col] != " ": return False
         return True
 
+    def reset_game(self):
+        self.init_game()
+        self.buttons.pop(1)
+        self._check_newgame_or_newstage()
+        self._update_time_per_newgame_newstage()
+
+    def _check_newgame_or_newstage(self):
+        if self.gameOver:
+            self.timeRemain = 0
+            self.stage = 0
+            self.startTime = 30000 - (1000 * self.stage)
+        if self.stageClear:
+            self.stage +=1
+            self.startTime = 30000 - (1000 * self.stage)
+
+    def _update_time_per_newgame_newstage(self):
+        self.TIME.duration = self.startTime + self.timeRemain
+        self.time = self.startTime + self.timeRemain
+        self.timeRemain = 0
+        self.startTime = self.time
+        self.TIME.activate()
+        self.TIME.current_time = 0
+
     def draw_game_board(self, window):
         for row in range(self.rows):
             for col in range(self.cols):
@@ -209,6 +251,22 @@ class PipeGamePlay:
         del self.pieces[(row, col)]
 
     def update(self):
+        if self.newGame:
+            return
+
+        if self.TIME.active:
+            self.TIME.update()
+            self.time = self.startTime//1000 + ((self.TIME.start_time // 1000) - (self.TIME.current_time//1000))
+
+        if self.time <= 0:
+            self.TIME.deactivate()
+
+        if self.stageClear and len(self.buttons) < 2:
+            self.buttons.append(Button(self, "Next Stage", 200, 50, 30, game.sw//2, game.sh//2))
+
+        if self.gameOver and len(self.buttons) < 2:
+            self.buttons.append(Button(self, "Game Over", 200, 50, 30, game.sw//2, game.sh//2))
+
         for value in self.pieces.values():
             value.update()
 
@@ -217,6 +275,10 @@ class PipeGamePlay:
         self.draw_current_next_pieces(window)
         for piece in self.pieces.values():
             piece.draw(window)
+
+        if self.buttons:
+            for button in self.buttons:
+                button.draw(window)
 
 class StartPiece:
     def __init__(self, game, piece, row, column, xoffset, yoffset, starttime):
@@ -329,8 +391,40 @@ class Piece:
             self.resetTimer(FLOWTIME)
 
         if self.imgIndex == len(FLOW[self.direction]) - 1 and self.active == True:
-            #self._calculate_next_piece_direction()
-            pass
+            self._calculate_next_piece_direction()
+
+    def _calculate_next_piece_direction(self):
+        self.active = False
+        newCell = {
+            ("LR", "TR", "BR"): [self.row, self.col + 1, "ERIGHT", ["LR-RL", "LT-TL", "LB-BL"]],
+            ("RL", "TL", "BL"): [self.row, self.col - 1, "ELEFT", ["LR-RL", "RT-TR", "RB-BR"]],
+            ("BT", "LT", "RT"): [self.row - 1, self.col, "EUP", ["TB-BT", "LB-BL", "RB-BR"]],
+            ("TB", "LB", "RB"): [self.row + 1, self.col, "EDOWN", ["TB-BT", "LT-TL", "RT-TR"]]
+        }
+        for flowDirection in newCell.keys():
+            if self.direction in flowDirection:
+                row, col = newCell[flowDirection][0], newCell[flowDirection][1]
+                endPiece = newCell[flowDirection][2]
+                nextPiece = newCell[flowDirection][3]
+
+                if self.game.grid[row][col] == endPiece:
+                    self.winstate()
+                    print("Pipes Complete")
+                    return
+                if self.game.grid[row][col] in nextPiece:
+                    self.updateNextPiece(row, col)
+                    return
+        self.failState()
+
+    def updateNextPiece(self, row, col):
+        self.game.pieces[(row, col)].calcFlowDirection(self.direction)
+        self.game.pieces[(row, col)].active = True
+
+    def winstate(self):
+        self.game.stageClear = True
+
+    def failState(self):
+        self.game.gameOver = True
 
     def resetTimer(self, duration):
         """Resets the timer with a new time"""
@@ -388,6 +482,50 @@ class Timer:
         self.current_time = pygame.time.get_ticks()
         if self.current_time - self.start_time >= self.duration:
             self.deactivate()
+
+class Button:
+    def __init__(self, game, text, width, height, fontsize, xpos, ypos):
+        self.game = game
+        self.text = text
+        self.width = width
+        self.height = height
+        self.fontsize = fontsize
+        self.xPos = xpos
+        self.yPos = ypos
+        self.font = pygame.font.SysFont("Stencil", self.fontsize)
+
+        self.image = self.buttonGenerator()
+        self.rect = self.image.get_rect(topleft=(self.xPos-(self.image.get_width()//2), self.yPos-(self.image.get_height()//2)))
+
+    def buttonGenerator(self):
+        image = pygame.Surface((self.width, self.height))
+        image.fill("Grey")
+        pygame.draw.rect(image, "Black", (2, 2, self.width-4, self.height - 4), 1)
+        text = self.font.render(self.text, 1, "Black")
+        rect = text.get_rect(center=(self.width//2, self.height//2))
+        image.blit(text, rect)
+        return image
+
+    def buttonAction(self):
+        if self.text == "Ready":
+            for piece in self.game.pieces.values():
+                if piece.piece[0] == "S":
+                    piece.timer.deactivate()
+
+        if self.text == "Next Stage":
+            self.game.reset_game()
+            self.game.stageClear = False
+
+        if self.text == "Game Over" or self.text == "New Game":
+            self.game.startTime = 30000
+            self.game.reset_game()
+
+            self.game.gameOver = False
+            self.game.newGame = False
+
+    def draw(self, window):
+        window.blit(self.image, self.rect)
+
 
 #  Constants
 SCREENWIDTH = 960
